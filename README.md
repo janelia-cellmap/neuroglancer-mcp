@@ -73,11 +73,12 @@ The first tool call returns a viewer URL. Open it once in your browser; all subs
 - `set_zoom` — set cross-section scale
 - `get_position` — current center position
 - `set_orientation` — set the 3D view quaternion
+- `center_on_layer` — re-center on a layer's volume midpoint (precomputed + OME-NGFF zarr); useful if you used `center=False` earlier or navigated away
 - `center_on_segment` — move the viewer to a single segment's approximate centroid (reads the mesh manifest; supports sharded `multilod_draco` and legacy unsharded meshes)
 
 **Layers**
-- `add_image_layer` — add raw EM image layer from precomputed/n5/zarr source
-- `add_segmentation_layer` — add segmentation layer
+- `add_image_layer` — add raw EM image layer from precomputed/n5/zarr source; auto-centers on the volume by default (`center=False` to opt out)
+- `add_segmentation_layer` — same, for segmentations
 - `remove_layer`, `set_layer_visibility`
 
 **Segments**

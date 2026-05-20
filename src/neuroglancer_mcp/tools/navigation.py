@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from neuroglancer_mcp.bounds import apply_center_to_viewer
 from neuroglancer_mcp.meshes import estimate_segment_centroid
 from neuroglancer_mcp.server import mcp
 from neuroglancer_mcp.tools.properties import _layer_source_urls
@@ -75,6 +76,63 @@ def get_position() -> dict[str, list[float]]:
     viewer = get_viewer()
     with viewer.txn() as s:
         return {"position": list(s.position) if s.position is not None else []}
+
+
+@mcp.tool()
+def center_on_layer(layer: str) -> dict[str, Any]:
+    """Move the viewer to the volume center of an existing layer.
+
+    Use this when you didn't auto-center on layer add (or you want to
+    re-center after navigating elsewhere). Reads the layer's source
+    metadata to compute the physical midpoint of the volume —
+    supports `precomputed://` and OME-NGFF `zarr://` sources.
+
+    For centering on a specific segment instead of the whole volume,
+    use `center_on_segment`.
+
+    Args:
+        layer: Layer name (image or segmentation; both work).
+
+    Returns:
+        {"layer", "format", "position_nm", "voxel_size_nm",
+         "shape_voxels", "position_voxels"} on success, or
+        {"layer", "centered": False, "reason": "..."} if metadata
+        couldn't be fetched or the source format isn't supported.
+    """
+    viewer = get_viewer()
+    sources = _layer_source_urls(viewer, layer) if False else None  # placeholder
+    # We need the raw source url, including the URI scheme. The
+    # segmentation-specific helper raises for image layers; do our own
+    # lookup that accepts any layer type.
+    with viewer.txn() as s:
+        match = None
+        for layer_obj in s.layers:
+            if layer_obj.name == layer:
+                match = layer_obj.layer
+                break
+        if match is None:
+            raise ValueError(f"Layer {layer!r} not found")
+        src = match.source
+        if src is None:
+            raise ValueError(f"Layer {layer!r} has no source")
+        if isinstance(src, (list, tuple)) or (
+            hasattr(src, "__iter__") and not isinstance(src, str)
+        ):
+            sources_list = [str(getattr(x, "url", x)) for x in src]
+        else:
+            sources_list = [str(getattr(src, "url", src))]
+    primary = next(
+        (s for s in sources_list if not s.rstrip("/").endswith("segment_properties")),
+        sources_list[0],
+    )
+    centered = apply_center_to_viewer(viewer, primary)
+    if centered is None:
+        return {
+            "layer": layer,
+            "centered": False,
+            "reason": "metadata fetch failed or unsupported source format",
+        }
+    return {"layer": layer, **centered}
 
 
 @mcp.tool()
