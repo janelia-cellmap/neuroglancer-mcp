@@ -290,6 +290,149 @@ def test_center_on_layer_reports_unsupported(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# dtype parsing + layer-type inference
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("|u1", "uint8"),
+        ("<u8", "uint64"),
+        (">f4", "float32"),
+        ("u2", "uint16"),
+        ("|i1", "int8"),
+        ("<f8", "float64"),
+        ("uint8", "uint8"),     # already canonical, pass through
+        ("float32", "float32"),  # already canonical
+    ],
+)
+def test_normalize_dtype(raw, expected):
+    assert bounds_mod._normalize_dtype(raw) == expected
+
+
+def test_fetch_layer_dtype_precomputed(stub_fetcher):
+    stub_fetcher["/em/info"] = {
+        "@type": "neuroglancer_multiscale_volume",
+        "data_type": "uint8",
+        "scales": [{"resolution": [8, 8, 8], "size": [10, 10, 10]}],
+    }
+    assert (
+        bounds_mod.fetch_layer_dtype("precomputed://gs://example/em")
+        == "uint8"
+    )
+
+
+def test_fetch_layer_dtype_zarr(stub_fetcher):
+    stub_fetcher["/data.zarr/.zattrs"] = _zarr_zattrs()
+    stub_fetcher["/data.zarr/s0/.zarray"] = {"shape": [1, 1, 1], "dtype": "<f4"}
+    assert (
+        bounds_mod.fetch_layer_dtype("zarr://s3://example/data.zarr")
+        == "float32"
+    )
+
+
+def test_fetch_layer_dtype_unsupported_format_returns_none():
+    assert bounds_mod.fetch_layer_dtype("n5://example/data") is None
+
+
+def test_infer_layer_type_float_is_image(monkeypatch):
+    monkeypatch.setattr(bounds_mod, "fetch_layer_dtype", lambda u: "float32")
+    out = bounds_mod.infer_layer_type("precomputed://gs://x/em")
+    assert out["type"] == "image"
+    assert out["confidence"] == "high"
+    assert out["dtype"] == "float32"
+
+
+def test_infer_layer_type_uint64_is_segmentation(monkeypatch):
+    monkeypatch.setattr(bounds_mod, "fetch_layer_dtype", lambda u: "uint64")
+    out = bounds_mod.infer_layer_type("precomputed://gs://x/seg")
+    assert out["type"] == "segmentation"
+    assert out["confidence"] == "high"
+
+
+def test_infer_layer_type_uint8_defaults_to_image_low_confidence(monkeypatch):
+    monkeypatch.setattr(bounds_mod, "fetch_layer_dtype", lambda u: "uint8")
+    out = bounds_mod.infer_layer_type("precomputed://gs://x/em")
+    assert out["type"] == "image"
+    assert out["confidence"] == "low"
+
+
+def test_infer_layer_type_unknown_dtype_low_confidence(monkeypatch):
+    monkeypatch.setattr(bounds_mod, "fetch_layer_dtype", lambda u: None)
+    out = bounds_mod.infer_layer_type("n5://example/foo")
+    assert out["type"] == "image"
+    assert out["confidence"] == "low"
+    assert out["dtype"] is None
+
+
+# ---------------------------------------------------------------------------
+# add_layer auto-detect (single)
+# ---------------------------------------------------------------------------
+
+
+def test_add_layer_infers_image_from_float(monkeypatch):
+    monkeypatch.setattr(
+        "neuroglancer_mcp.tools.layers.infer_layer_type",
+        lambda u: {
+            "type": "image", "dtype": "float32", "confidence": "high",
+            "reason": "float dtype",
+        },
+    )
+    monkeypatch.setattr(
+        bounds_mod,
+        "compute_layer_center",
+        lambda u: (_ for _ in ()).throw(ValueError("stub")),
+    )
+    from neuroglancer_mcp.tools import layers as layers_mod
+    result = layers_mod.add_layer("predictions", "zarr://example/preds.zarr")
+    assert result["type"] == "image"
+    assert result["inferred"] is True
+    assert result["inference"]["dtype"] == "float32"
+
+
+def test_add_layer_infers_segmentation_from_uint64(monkeypatch):
+    monkeypatch.setattr(
+        "neuroglancer_mcp.tools.layers.infer_layer_type",
+        lambda u: {
+            "type": "segmentation", "dtype": "uint64", "confidence": "high",
+            "reason": "uint64 segment IDs",
+        },
+    )
+    monkeypatch.setattr(
+        bounds_mod,
+        "compute_layer_center",
+        lambda u: (_ for _ in ()).throw(ValueError("stub")),
+    )
+    from neuroglancer_mcp.tools import layers as layers_mod
+    result = layers_mod.add_layer("labels", "precomputed://example/labels")
+    assert result["type"] == "segmentation"
+    assert result["inferred"] is True
+    listed = [layer["name"] for layer in state.list_layers()]
+    assert "labels" in listed
+
+
+def test_add_layer_explicit_type_skips_inference(monkeypatch):
+    called = {"n": 0}
+
+    def boom(u):
+        called["n"] += 1
+        raise AssertionError("inference should be skipped")
+
+    monkeypatch.setattr(bounds_mod, "infer_layer_type", boom)
+    monkeypatch.setattr(
+        bounds_mod,
+        "compute_layer_center",
+        lambda u: (_ for _ in ()).throw(ValueError("stub")),
+    )
+    from neuroglancer_mcp.tools import layers as layers_mod
+    result = layers_mod.add_layer("x", "zarr://example/x.zarr", type="image")
+    assert called["n"] == 0
+    assert result["type"] == "image"
+    assert result["inferred"] is False
+
+
 @pytest.mark.network
 def test_hela2_volume_center_matches_published_bounds():
     """Live test: OpenOrganelle jrc_hela-2 FIB-SEM (zarr) auto-center.

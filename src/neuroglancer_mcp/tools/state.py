@@ -61,12 +61,14 @@ def share_url() -> dict[str, Any]:
     exits.
 
     **CRITICAL — do not truncate, abbreviate, or ellide any part of the
-    returned URL.** The entire viewer state (layers, colors, position,
-    visibility, etc.) lives in the URL fragment; chopping the middle
-    out produces an invalid link. Always present the URL in full as a
-    markdown link `[label](URL)`, or if it's too long for the chat
-    transcript, call `save_share_url(path)` to write it to a file
-    and hand the user the file path instead.
+    returned URL under any circumstances.** The entire viewer state
+    (layers, colors, position, visibility, etc.) lives in the URL
+    fragment; chopping the middle out produces an invalid link. Modern
+    browsers accept URLs of tens of KB without issue, so length is
+    never a reason to shorten. Always present the URL in full as a
+    markdown link `[label](URL)`. If you'd prefer to hand the user a
+    file rather than a wall of URL in chat, call `save_share_url(path)`
+    — but that's a UX choice, not a workaround for any length limit.
 
     The snapshot is taken at call time and does not update if the viewer
     state changes afterward — call again to refresh.
@@ -89,10 +91,16 @@ def share_url() -> dict[str, Any]:
 def save_share_url(path: str, html: bool = True) -> dict[str, Any]:
     """Write the current viewer's snapshot URL to a file.
 
-    Use when the URL from `share_url` is too long to comfortably inline
-    in chat (large multi-layer views can produce URLs in the tens of
-    KB). The file is the user's source of truth — they open it instead
-    of the in-chat link.
+    This is a UX/ergonomics tool, not a workaround for any length limit
+    — modern browsers accept Neuroglancer share URLs of tens of KB
+    just fine. Reach for this when:
+
+    - The URL would be visually noisy in chat (large multi-layer
+      views can produce 10–50 KB of URL).
+    - You want a clickable HTML wrapper that a non-technical user can
+      double-click to open.
+    - You want to keep the encoded state out of the agent's context
+      window (every subsequent turn re-tokenizes a long URL).
 
     Args:
         path: Filesystem path to write to (absolute or relative to the

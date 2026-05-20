@@ -166,6 +166,116 @@ def _center_zarr(url: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# dtype inspection + layer-type inference
+# ---------------------------------------------------------------------------
+
+
+_NUMPY_DTYPE_TO_NAME = {
+    "u1": "uint8", "u2": "uint16", "u4": "uint32", "u8": "uint64",
+    "i1": "int8", "i2": "int16", "i4": "int32", "i8": "int64",
+    "f2": "float16", "f4": "float32", "f8": "float64",
+    "b1": "bool",
+}
+
+
+def _normalize_dtype(dtype: str) -> str:
+    """Canonicalize numpy dtype strings ('|u1', '<u8') to friendly names.
+
+    Precomputed publishes already-friendly names ("uint8", "float32");
+    OME-NGFF zarr publishes numpy-style strings. We accept either.
+    """
+    if not dtype:
+        return dtype
+    s = dtype.strip()
+    # Strip endianness prefix if present.
+    if s and s[0] in "<>|=":
+        s = s[1:]
+    return _NUMPY_DTYPE_TO_NAME.get(s, dtype)
+
+
+def fetch_layer_dtype(source_url: str) -> Optional[str]:
+    """Return the layer's canonical dtype name, or None if not derivable.
+
+    Reads from the source's metadata; no actual data fetch. Used by
+    `infer_layer_type` to decide whether a layer is image or
+    segmentation when the caller hasn't said.
+    """
+    url = source_url.strip()
+    try:
+        if url.startswith("precomputed://"):
+            base = _normalize_url(url).rstrip("/")
+            info = _fetch_json(base + "/info")
+            return _normalize_dtype(info.get("data_type", ""))
+        if url.startswith("zarr://") or url.startswith("zarr2://"):
+            base = _normalize_url(url).rstrip("/")
+            zattrs = _fetch_json(base + "/.zattrs")
+            ms = zattrs.get("multiscales", [])
+            if not ms or not ms[0].get("datasets"):
+                return None
+            path = ms[0]["datasets"][0]["path"]
+            zarray = _fetch_json(base + "/" + path + "/.zarray")
+            return _normalize_dtype(zarray.get("dtype", ""))
+    except Exception as e:  # noqa: BLE001
+        print(
+            f"[neuroglancer-mcp] dtype probe failed for {source_url}: {e}",
+            file=sys.stderr,
+        )
+    return None
+
+
+def infer_layer_type(source_url: str) -> dict[str, Any]:
+    """Guess 'image' vs 'segmentation' for a data source based on dtype.
+
+    Rules (connectomics conventions):
+    - `float*` → image. Floats are virtually never segment IDs.
+    - `uint64` → segmentation. Connectomics canonically stores segment
+      IDs as uint64 (FlyWire, hemibrain, MICrONS, CellMap).
+    - Anything else (uint8/16/32, int*) → image, **low confidence**.
+      uint8/uint16 are usually EM raw or 8/16-bit predictions; uint32
+      is rare. Override explicitly via the `type` argument when the
+      data is actually a small-bitwidth label volume.
+
+    Returns:
+        {"type": "image" | "segmentation",
+         "dtype": <canonical name or None>,
+         "confidence": "high" | "low",
+         "reason": <human-readable>}.
+    """
+    dtype = fetch_layer_dtype(source_url)
+    if dtype is None:
+        return {
+            "type": "image",
+            "dtype": None,
+            "confidence": "low",
+            "reason": "couldn't read dtype from metadata; defaulting to image",
+        }
+    if dtype.startswith("float"):
+        return {
+            "type": "image",
+            "dtype": dtype,
+            "confidence": "high",
+            "reason": "float dtype — virtually always image / prediction data",
+        }
+    if dtype == "uint64":
+        return {
+            "type": "segmentation",
+            "dtype": dtype,
+            "confidence": "high",
+            "reason": "uint64 dtype — canonical segment-ID width",
+        }
+    return {
+        "type": "image",
+        "dtype": dtype,
+        "confidence": "low",
+        "reason": (
+            f"{dtype} could be either image or labels; "
+            "defaulting to image. Pass type='segmentation' explicitly "
+            "if this is a label volume."
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Format dispatch
 # ---------------------------------------------------------------------------
 

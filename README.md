@@ -78,9 +78,10 @@ The first tool call returns a viewer URL. Open it once in your browser; all subs
 - `center_on_segment` — move the viewer to a single segment's approximate centroid (reads the mesh manifest; supports sharded `multilod_draco` and legacy unsharded meshes)
 
 **Layers**
-- `add_image_layer` — add raw EM image layer from precomputed/n5/zarr source; auto-centers on the volume by default (`center=False` to opt out)
-- `add_segmentation_layer` — same, for segmentations
-- `add_layers` — bulk add (one transaction, one auto-center) for multi-layer datasets like OpenOrganelle volumes
+- `add_image_layer` — explicit image layer; auto-centers on the volume by default (`center=False` to opt out)
+- `add_segmentation_layer` — explicit segmentation layer; same auto-center behavior
+- `add_layer` — *smart* add: infers image vs segmentation from the source's dtype (`float*` → image, `uint64` → segmentation, others → image with low confidence)
+- `add_layers` — bulk add (one transaction, one auto-center); each item's `type` is optional and auto-detected when omitted
 - `remove_layer`, `set_layer_visibility`
 - `set_layers_visibility` — bulk-toggle visibility by `{name: bool}` map
 - `show_only_layers` — show the named layers, hide everything else (the "isolate this view" shortcut)

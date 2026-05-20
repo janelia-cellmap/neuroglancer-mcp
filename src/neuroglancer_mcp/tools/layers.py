@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 import neuroglancer
 
-from neuroglancer_mcp.bounds import apply_center_to_viewer
+from neuroglancer_mcp.bounds import apply_center_to_viewer, infer_layer_type
 from neuroglancer_mcp.server import mcp
 from neuroglancer_mcp.viewer import get_viewer
 
@@ -92,6 +92,73 @@ def add_segmentation_layer(
 
 
 @mcp.tool()
+def add_layer(
+    name: str,
+    source: str,
+    type: Optional[str] = None,
+    center: bool = True,
+) -> dict[str, Any]:
+    """Add a single layer, inferring image vs segmentation from the dtype.
+
+    Use this when you don't already know whether the source is image
+    or segmentation data (e.g., you got a URL from a user / web page
+    and don't want to fetch the info file yourself first). The tool
+    reads the source's dtype from its metadata and dispatches:
+
+    - `float*` dtypes → image (high confidence)
+    - `uint64` → segmentation (high confidence)
+    - other integer dtypes → image (low confidence; pass `type=` to
+      override if the data is actually a label volume)
+
+    If you already know the type, prefer the explicit
+    `add_image_layer` / `add_segmentation_layer` — they skip the
+    dtype-probe network round-trip.
+
+    Args:
+        name: Display name for the layer.
+        source: Data source URL (precomputed://, zarr://, n5://, …).
+        type: Either "image" or "segmentation" to override inference.
+            Leave None (default) to auto-detect.
+        center: Auto-navigate to the volume center after adding. Same
+            semantics as `add_image_layer(center=...)`.
+
+    Returns:
+        {"name", "type", "source", "inferred": bool,
+         "inference": {dtype, confidence, reason} | None,
+         "centered_on": {...} | absent}.
+    """
+    inference: Optional[dict[str, Any]] = None
+    if type is None:
+        inference = infer_layer_type(source)
+        type = inference["type"]
+    if type not in {"image", "segmentation"}:
+        raise ValueError(
+            f"type must be 'image' or 'segmentation', got {type!r}"
+        )
+
+    viewer = get_viewer()
+    with viewer.txn() as s:
+        if type == "image":
+            s.layers[name] = neuroglancer.ImageLayer(source=source)
+        else:
+            s.layers[name] = neuroglancer.SegmentationLayer(source=source)
+
+    result: dict[str, Any] = {
+        "name": name,
+        "type": type,
+        "source": source,
+        "inferred": inference is not None,
+    }
+    if inference is not None:
+        result["inference"] = inference
+    if center:
+        centered = apply_center_to_viewer(viewer, source)
+        if centered is not None:
+            result["centered_on"] = centered
+    return result
+
+
+@mcp.tool()
 def add_layers(
     layers: list[dict[str, Any]],
     center_on: Optional[str] = "first",
@@ -103,7 +170,9 @@ def add_layers(
     routinely ship 50–100 layers). One round trip instead of N.
 
     Each item in `layers` is a dict:
-        {"name": str, "source": str, "type": "image"|"segmentation",
+        {"name": str, "source": str,
+         "type": "image"|"segmentation" (optional — auto-detected from
+                 the source dtype if omitted, same rules as `add_layer`),
          "visible": bool (default True)}
 
     Auto-centering is applied once based on `center_on`:
@@ -140,8 +209,12 @@ def add_layers(
             try:
                 name = spec["name"]
                 source = spec["source"]
-                ltype = spec["type"]
+                ltype = spec.get("type")
                 visible = spec.get("visible", True)
+                inference: Optional[dict[str, Any]] = None
+                if ltype is None:
+                    inference = infer_layer_type(source)
+                    ltype = inference["type"]
                 if ltype == "image":
                     s.layers[name] = neuroglancer.ImageLayer(source=source)
                 elif ltype == "segmentation":
@@ -155,9 +228,12 @@ def add_layers(
                     if layer_obj.name == name:
                         layer_obj.visible = visible
                         break
-                added.append(
-                    {"name": name, "type": ltype, "source": source, "visible": visible}
-                )
+                entry: dict[str, Any] = {
+                    "name": name, "type": ltype, "source": source, "visible": visible,
+                }
+                if inference is not None:
+                    entry["inference"] = inference
+                added.append(entry)
                 if center_source is None and (
                     (center_on == "first" and i == 0)
                     or (center_on not in (None, "first") and name == center_on)
