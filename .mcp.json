@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "neuroglancer": {
+      "command": "uv",
+      "args": ["run", "neuroglancer-mcp"]
+    }
+  }
+}

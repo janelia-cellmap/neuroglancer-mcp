@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "neuroglancer-mcp"
+version = "0.1.0"
+description = "Unofficial MCP server for Google's Neuroglancer volumetric viewer"
+readme = "README.md"
+license = { text = "BSD-3-Clause" }
+authors = [
+    { name = "David Ackerman" },
+]
+requires-python = ">=3.10"
+keywords = ["mcp", "neuroglancer", "connectomics", "claude", "anthropic"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+dependencies = [
+    "mcp>=1.0.0",
+    "neuroglancer>=2.40",
+    "numpy",
+    "pillow",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+    "mypy",
+]
+
+[project.scripts]
+neuroglancer-mcp = "neuroglancer_mcp.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/janelia-cellmap/neuroglancer-mcp"
+Issues = "https://github.com/janelia-cellmap/neuroglancer-mcp/issues"
+"Neuroglancer (official)" = "https://github.com/google/neuroglancer"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/neuroglancer_mcp"]
