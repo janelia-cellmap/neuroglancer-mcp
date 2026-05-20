@@ -50,7 +50,7 @@ def get_url() -> dict[str, str]:
 
 
 @mcp.tool()
-def share_url() -> dict[str, str]:
+def share_url() -> dict[str, Any]:
     """Return a snapshot URL that encodes the current viewer state.
 
     Unlike `get_url`, which points at this process's live viewer (only
@@ -60,14 +60,78 @@ def share_url() -> dict[str, str]:
     paste into a paper/slide; it will keep working after the MCP server
     exits.
 
+    **CRITICAL — do not truncate, abbreviate, or ellide any part of the
+    returned URL.** The entire viewer state (layers, colors, position,
+    visibility, etc.) lives in the URL fragment; chopping the middle
+    out produces an invalid link. Always present the URL in full as a
+    markdown link `[label](URL)`, or if it's too long for the chat
+    transcript, call `save_share_url(path)` to write it to a file
+    and hand the user the file path instead.
+
     The snapshot is taken at call time and does not update if the viewer
     state changes afterward — call again to refresh.
 
     Returns:
-        {"url": "https://neuroglancer-demo.appspot.com/#!..."}.
+        {"url": "<full URL, may be tens of KB>",
+         "length": <int — number of characters>,
+         "warning": "do not truncate"}.
     """
     viewer = get_viewer()
-    return {"url": neuroglancer.to_url(viewer.state)}
+    url = neuroglancer.to_url(viewer.state)
+    return {
+        "url": url,
+        "length": len(url),
+        "warning": "do not truncate — entire viewer state is in the URL fragment",
+    }
+
+
+@mcp.tool()
+def save_share_url(path: str, html: bool = True) -> dict[str, Any]:
+    """Write the current viewer's snapshot URL to a file.
+
+    Use when the URL from `share_url` is too long to comfortably inline
+    in chat (large multi-layer views can produce URLs in the tens of
+    KB). The file is the user's source of truth — they open it instead
+    of the in-chat link.
+
+    Args:
+        path: Filesystem path to write to (absolute or relative to the
+            MCP server's working directory).
+        html: If True (default), write a minimal HTML wrapper that the
+            user can double-click to open the view in their browser.
+            If False, write just the raw URL as a text file.
+
+    Returns:
+        {"path", "absolute_path", "length", "format": "html" | "url"}.
+    """
+    viewer = get_viewer()
+    url = neuroglancer.to_url(viewer.state)
+    if html:
+        body = (
+            "<!doctype html>\n"
+            "<html><head><meta charset=\"utf-8\">"
+            "<title>Neuroglancer snapshot</title></head>\n"
+            "<body>"
+            f"<p><a href=\"{url}\">Open in Neuroglancer</a></p>\n"
+            f"<details><summary>Raw URL ({len(url)} chars)</summary>"
+            f"<pre style=\"white-space:pre-wrap;word-break:break-all\">{url}</pre>"
+            "</details></body></html>\n"
+        )
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(body)
+        fmt = "html"
+    else:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(url)
+        fmt = "url"
+    import os
+
+    return {
+        "path": path,
+        "absolute_path": os.path.abspath(path),
+        "length": len(url),
+        "format": fmt,
+    }
 
 
 @mcp.tool()

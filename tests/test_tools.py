@@ -109,8 +109,35 @@ def test_get_url_returns_nonempty_string():
 
 
 def test_share_url_points_at_demo_appspot_and_encodes_state():
-    layers.add_image_layer("em", "precomputed://gs://example/em")
+    layers.add_image_layer("em", "precomputed://gs://example/em", center=False)
     shared = state.share_url()
     assert shared["url"].startswith("https://neuroglancer-demo.appspot.com")
     # The source URL is preserved in the encoded state fragment.
     assert "precomputed" in shared["url"]
+    # Length is reported so the agent can decide whether to inline or save.
+    assert shared["length"] == len(shared["url"])
+    assert "do not truncate" in shared["warning"].lower()
+
+
+def test_save_share_url_html(tmp_path):
+    layers.add_image_layer("em", "precomputed://gs://example/em", center=False)
+    target = tmp_path / "snapshot.html"
+    result = state.save_share_url(str(target))
+    assert result["format"] == "html"
+    assert result["length"] > 0
+    body = target.read_text()
+    # The full URL must appear at least once (no truncation).
+    assert "neuroglancer-demo.appspot.com" in body
+    assert "<a href=" in body  # clickable link
+    assert "Open in Neuroglancer" in body
+
+
+def test_save_share_url_plain(tmp_path):
+    layers.add_image_layer("em", "precomputed://gs://example/em", center=False)
+    target = tmp_path / "snapshot.url"
+    result = state.save_share_url(str(target), html=False)
+    assert result["format"] == "url"
+    body = target.read_text()
+    assert body.startswith("https://neuroglancer-demo.appspot.com")
+    # Plain mode writes just the URL — no HTML chrome.
+    assert "<html>" not in body.lower()

@@ -65,6 +65,7 @@ The first tool call returns a viewer URL. Open it once in your browser; all subs
 - `get_state` — current viewer state as JSON
 - `get_url` — live viewer URL (only reachable while this MCP server runs)
 - `share_url` — snapshot URL on `neuroglancer-demo.appspot.com` that encodes the current state for sharing
+- `save_share_url` — write the snapshot URL to a file (HTML or plain text) for when it's too long to inline in chat
 - `load_state` — load state from JSON or share URL
 - `list_layers` — names, types, visibility
 
@@ -79,7 +80,10 @@ The first tool call returns a viewer URL. Open it once in your browser; all subs
 **Layers**
 - `add_image_layer` — add raw EM image layer from precomputed/n5/zarr source; auto-centers on the volume by default (`center=False` to opt out)
 - `add_segmentation_layer` — same, for segmentations
+- `add_layers` — bulk add (one transaction, one auto-center) for multi-layer datasets like OpenOrganelle volumes
 - `remove_layer`, `set_layer_visibility`
+- `set_layers_visibility` — bulk-toggle visibility by `{name: bool}` map
+- `show_only_layers` — show the named layers, hide everything else (the "isolate this view" shortcut)
 
 **Segments**
 - `show_segments` — replace visible segments in a layer
