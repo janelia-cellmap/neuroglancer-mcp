@@ -7,8 +7,22 @@ from typing import Any, Optional
 import neuroglancer
 
 from neuroglancer_mcp.bounds import apply_center_to_viewer, infer_layer_type
+from neuroglancer_mcp.local_serve import looks_like_local_path, resolve_local_source
 from neuroglancer_mcp.server import mcp
 from neuroglancer_mcp.viewer import get_viewer
+
+
+def _resolve_source(source: str) -> tuple[str, Optional[dict[str, Any]]]:
+    """If `source` is a local path, spawn a server and return the URL.
+
+    Returns the (possibly-rewritten) source plus a small `local`
+    metadata dict (or None when no rewrite happened) so the tool's
+    caller can report what happened to the agent.
+    """
+    if not looks_like_local_path(source):
+        return source, None
+    resolved = resolve_local_source(source)
+    return resolved, {"original_path": source, "served_url": resolved}
 
 
 @mcp.tool()
@@ -24,7 +38,14 @@ def add_image_layer(
 
     Args:
         name: Display name for the layer.
-        source: Data source URL. Common prefixes:
+        source: Either a Neuroglancer source URL or a local filesystem
+            path. URLs with `://` are passed through unchanged; bare
+            paths (e.g. `/groups/cellmap/.../foo.zarr`) trigger
+            auto-serving — the MCP spawns an HTTP server rooted at the
+            dataset's parent directory, detects the format from the
+            extension (`.zarr`/`.n5`) or contents (a precomputed
+            directory containing `info`), and rewrites the source to
+            `<scheme>://http://host:port/<name>`. Common URL prefixes:
             - precomputed://gs://...   (Google Cloud Storage Precomputed)
             - precomputed://https://...  (HTTP-hosted Precomputed)
             - n5://...
@@ -42,10 +63,13 @@ def add_image_layer(
         ({"format", "position_nm", "voxel_size_nm", "shape_voxels",
         "position_voxels"}).
     """
+    source, local_info = _resolve_source(source)
     viewer = get_viewer()
     with viewer.txn() as s:
         s.layers[name] = neuroglancer.ImageLayer(source=source)
     result: dict[str, Any] = {"name": name, "type": "image", "source": source}
+    if local_info is not None:
+        result["local"] = local_info
     if center:
         centered = apply_center_to_viewer(viewer, source)
         if centered is not None:
@@ -76,6 +100,7 @@ def add_segmentation_layer(
         {"name", "type", "source"} plus optional `centered_on` block
         when auto-centering succeeded.
     """
+    source, local_info = _resolve_source(source)
     viewer = get_viewer()
     with viewer.txn() as s:
         s.layers[name] = neuroglancer.SegmentationLayer(source=source)
@@ -84,6 +109,8 @@ def add_segmentation_layer(
         "type": "segmentation",
         "source": source,
     }
+    if local_info is not None:
+        result["local"] = local_info
     if center:
         centered = apply_center_to_viewer(viewer, source)
         if centered is not None:
@@ -127,6 +154,7 @@ def add_layer(
          "inference": {dtype, confidence, reason} | None,
          "centered_on": {...} | absent}.
     """
+    source, local_info = _resolve_source(source)
     inference: Optional[dict[str, Any]] = None
     if type is None:
         inference = infer_layer_type(source)
@@ -149,6 +177,8 @@ def add_layer(
         "source": source,
         "inferred": inference is not None,
     }
+    if local_info is not None:
+        result["local"] = local_info
     if inference is not None:
         result["inference"] = inference
     if center:
@@ -209,6 +239,7 @@ def add_layers(
             try:
                 name = spec["name"]
                 source = spec["source"]
+                source, local_info = _resolve_source(source)
                 ltype = spec.get("type")
                 visible = spec.get("visible", True)
                 inference: Optional[dict[str, Any]] = None
@@ -233,6 +264,8 @@ def add_layers(
                 }
                 if inference is not None:
                     entry["inference"] = inference
+                if local_info is not None:
+                    entry["local"] = local_info
                 added.append(entry)
                 if center_source is None and (
                     (center_on == "first" and i == 0)

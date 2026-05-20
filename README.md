@@ -119,6 +119,11 @@ The first tool call returns a viewer URL. Open it once in your browser; all subs
 - `set_segmentation_rendering` — `voxel`, `mesh`, or `both`
 - `set_mesh_resolution` — mesh LOD threshold (smaller = finer)
 
+**Local data**
+- `serve_local_directory` — explicitly expose a filesystem path over HTTP so Neuroglancer's browser can read it
+- `list_served_directories`, `stop_serving_directory` — manage the spawned servers
+- Auto-served: passing a bare filesystem path (e.g. `/groups/cellmap/.../foo.zarr`) to any `add_*_layer` tool spawns the server automatically, detects the format from extension or contents, and rewrites the source URL
+
 ## LAN access
 
 The viewer binds to `0.0.0.0` by default, so `get_url` returns a hostname-based URL that other machines on the same LAN can open (typical workflow: MCP runs on a workstation, you open the viewer on your laptop). To restrict to the local machine, set `NEUROGLANCER_MCP_BIND_ADDRESS=127.0.0.1` before launching; you can also pass a specific interface IP for tighter firewalling.

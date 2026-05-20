@@ -17,6 +17,7 @@ mcp = FastMCP("neuroglancer-mcp")
 # import `mcp` from here).
 from neuroglancer_mcp.tools import (  # noqa: E402, F401
     layers,
+    local_data,
     navigation,
     properties,
     segments,
