@@ -63,12 +63,17 @@ def share_url() -> dict[str, Any]:
     **CRITICAL — do not truncate, abbreviate, or ellide any part of the
     returned URL under any circumstances.** The entire viewer state
     (layers, colors, position, visibility, etc.) lives in the URL
-    fragment; chopping the middle out produces an invalid link. Modern
-    browsers accept URLs of tens of KB without issue, so length is
-    never a reason to shorten. Always present the URL in full as a
-    markdown link `[label](URL)`. If you'd prefer to hand the user a
-    file rather than a wall of URL in chat, call `save_share_url(path)`
-    — but that's a UX choice, not a workaround for any length limit.
+    fragment; chopping the middle out produces an invalid link.
+    Always present the URL in full as a markdown link `[label](URL)`.
+
+    Note: while modern browsers themselves handle tens of KB URLs fine,
+    downstream sharing surfaces often don't — Outlook wraps and breaks
+    URLs at ~76 chars, Slack/Teams truncate long messages, Excel
+    hyperlinks cap around 2K, URL shorteners reject anything large,
+    and copying a 20KB URL through a terminal can fail. When the user
+    intends to share the link through one of these channels, prefer
+    `save_share_url(path)` to write an HTML file the user can attach,
+    upload, or host instead.
 
     The snapshot is taken at call time and does not update if the viewer
     state changes afterward — call again to refresh.
@@ -91,16 +96,24 @@ def share_url() -> dict[str, Any]:
 def save_share_url(path: str, html: bool = True) -> dict[str, Any]:
     """Write the current viewer's snapshot URL to a file.
 
-    This is a UX/ergonomics tool, not a workaround for any length limit
-    — modern browsers accept Neuroglancer share URLs of tens of KB
-    just fine. Reach for this when:
+    Browsers themselves handle long Neuroglancer URLs without issue,
+    but plenty of *sharing surfaces between you and the browser* don't.
+    Reach for this when any of these apply:
 
-    - The URL would be visually noisy in chat (large multi-layer
-      views can produce 10–50 KB of URL).
-    - You want a clickable HTML wrapper that a non-technical user can
-      double-click to open.
-    - You want to keep the encoded state out of the agent's context
-      window (every subsequent turn re-tokenizes a long URL).
+    - **Email** — Outlook (and others) wrap URLs at ~76 chars and break
+      them on the way through. An HTML attachment survives intact.
+    - **Slack / Teams / Discord** — long messages get truncated; some
+      bots/webhooks reject anything large.
+    - **Spreadsheets / docs** — Excel hyperlinks max around 2K
+      characters; Google Sheets is similar.
+    - **URL shorteners** — most refuse URLs over a couple KB, so you
+      can't host the link behind a bit.ly.
+    - **Terminal / chat paste** — pasting tens of KB into a shell or
+      message field can hit buffer or line-length limits.
+    - **Agent context** — keeping a 20 KB URL out of conversation
+      history avoids re-tokenizing it on every subsequent turn.
+    - **Non-technical users** — a double-click-to-open HTML file is
+      easier than "select all of this and paste into a browser."
 
     Args:
         path: Filesystem path to write to (absolute or relative to the
